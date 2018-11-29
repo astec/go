@@ -46,8 +46,22 @@ const IntSize = intSize
 
 const maxUint64 = 1<<64 - 1
 
+func detectBase(s string) (int, string, error) {
+	switch {
+	case s[0] == '0' && len(s) > 1 && (s[1] == 'x' || s[1] == 'X'):
+		if len(s) < 3 {
+			return 0, s, ErrSyntax
+		}
+		return 16, s[2:], nil
+	case s[0] == '0':
+		return 8, s[1:], nil
+	default:
+		return 10, s, nil
+	}
+}
+
 // ParseUint is like ParseInt but for unsigned numbers.
-func ParseUint(s string, base int, bitSize int) (uint64, error) {
+func ParseUint(s string, base int, bitSize int) (n uint64, err error) {
 	const fnParseUint = "ParseUint"
 
 	if len(s) == 0 {
@@ -60,19 +74,9 @@ func ParseUint(s string, base int, bitSize int) (uint64, error) {
 		// valid base; nothing to do
 
 	case base == 0:
-		// Look for octal, hex prefix.
-		switch {
-		case s[0] == '0' && len(s) > 1 && (s[1] == 'x' || s[1] == 'X'):
-			if len(s) < 3 {
-				return 0, syntaxError(fnParseUint, s0)
-			}
-			base = 16
-			s = s[2:]
-		case s[0] == '0':
-			base = 8
-			s = s[1:]
-		default:
-			base = 10
+		var err error
+		if base, s, err = detectBase(s); err != nil {
+			return 0, &NumError{fnParseUint, s0, err}
 		}
 
 	default:
@@ -99,7 +103,6 @@ func ParseUint(s string, base int, bitSize int) (uint64, error) {
 
 	maxVal := uint64(1)<<uint(bitSize) - 1
 
-	var n uint64
 	for _, c := range []byte(s) {
 		var d byte
 		switch {
@@ -156,8 +159,10 @@ func ParseUint(s string, base int, bitSize int) (uint64, error) {
 func ParseInt(s string, base int, bitSize int) (i int64, err error) {
 	const fnParseInt = "ParseInt"
 
+	sLen := len(s)
+
 	// Empty string bad.
-	if len(s) == 0 {
+	if sLen == 0 {
 		return 0, syntaxError(fnParseInt, s)
 	}
 
@@ -171,6 +176,31 @@ func ParseInt(s string, base int, bitSize int) (i int64, err error) {
 		s = s[1:]
 	}
 
+	if base == 0 {
+		if base, s, err = detectBase(s); err != nil {
+			return 0, &NumError{fnParseInt, s0, err}
+		}
+	}
+
+	if bitSize == 0 {
+		bitSize = int(IntSize)
+	}
+
+	// Fast path when base=10 for small integers that fit common bitSize.
+	if base == 10 && sLen < 19 && (bitSize == 64 || bitSize == 32 && sLen < 10) {
+		for _, ch := range s {
+			ch -= '0'
+			if ch > 9 {
+				return 0, syntaxError(fnParseInt, s0)
+			}
+			i = i*10 + int64(ch)
+		}
+		if neg {
+			i = -i
+		}
+		return
+	}
+
 	// Convert unsigned and check range.
 	var un uint64
 	un, err = ParseUint(s, base, bitSize)
@@ -178,10 +208,6 @@ func ParseInt(s string, base int, bitSize int) (i int64, err error) {
 		err.(*NumError).Func = fnParseInt
 		err.(*NumError).Num = s0
 		return 0, err
-	}
-
-	if bitSize == 0 {
-		bitSize = int(IntSize)
 	}
 
 	cutoff := uint64(1 << uint(bitSize-1))
