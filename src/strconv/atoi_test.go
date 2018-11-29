@@ -482,10 +482,16 @@ func TestNumError(t *testing.T) {
 
 func BenchmarkParseInt(b *testing.B) {
 	b.Run("Pos", func(b *testing.B) {
-		benchmarkParseInt(b, 1)
+		benchmarkParseInt(b, 1, 10)
 	})
 	b.Run("Neg", func(b *testing.B) {
-		benchmarkParseInt(b, -1)
+		benchmarkParseInt(b, -1, 10)
+	})
+	b.Run("Pos_Base0", func(b *testing.B) {
+		benchmarkParseInt(b, 1, 0)
+	})
+	b.Run("Neg_Base0", func(b *testing.B) {
+		benchmarkParseInt(b, -1, 0)
 	})
 }
 
@@ -494,7 +500,7 @@ type benchCase struct {
 	num  int64
 }
 
-func benchmarkParseInt(b *testing.B, neg int) {
+func benchmarkParseInt(b *testing.B, neg, base int) {
 	cases := []benchCase{
 		{"7bit", 1<<7 - 1},
 		{"26bit", 1<<26 - 1},
@@ -506,7 +512,7 @@ func benchmarkParseInt(b *testing.B, neg int) {
 		b.Run(cs.name, func(b *testing.B) {
 			s := fmt.Sprintf("%d", cs.num*int64(neg))
 			for i := 0; i < b.N; i++ {
-				out, _ := ParseInt(s, 10, 64)
+				out, _ := ParseInt(s, base, 64)
 				BenchSink += int(out)
 			}
 		})
